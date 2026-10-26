@@ -1,0 +1,30 @@
+/********************* Global *********************/
+
+:root {
+    --black: #000000;
+}
+
+*,
+::before,
+::after {
+    box-sizing: border-box;
+}
+
+html {
+    height: 100%;
+    -webkit-text-size-adjust: 100%;
+}
+
+body {
+    background-color: var(--black);
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+main {
+    height: 100%;
+}

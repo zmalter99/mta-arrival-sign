@@ -1,0 +1,25 @@
+<!-- Title & Meta -->
+<title>{{ page.title }}</title>
+<meta name="description" content="{{ page.description }}"/>
+<meta charset="UTF-8">
+<meta name="viewport" content="initial-scale=1, width=device-width, height=device-height, viewport-fit=cover">
+{% if page.no_index %}
+<meta name="robots" content="noindex,nofollow">
+{% endif %}
+
+<!-- Home Screen App -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="{{ site.title }}">
+
+<!-- CSS -->
+<link href="{{ site.baseurl }}/assets/css/global.css?{{ 'now' | date: '%s' }}" rel="stylesheet">
+{% for css in page.css %}
+<link href="{{ site.baseurl }}/assets/css/{{ css }}.css?{{ 'now' | date: '%s' }}" rel="stylesheet">
+{% endfor %}
+
+<!-- JS -->
+{% for js in page.js %}
+<script defer src="{{ site.baseurl }}/assets/js/{{ js }}.js?{{ 'now' | date: '%s' }}"></script>
+{% endfor %}
