@@ -4,8 +4,6 @@ const STATIONS = [
     { stopID: "D18", feed: "nyct/gtfs-bdfm", routes: ["F", "M"], walkMinutes: 0 },
     { stopID: "634", feed: "nyct/gtfs", routes: ["6"], walkMinutes: 0 },
 ];
-const CYCLE_MINUTES = 30;
-const PAGE_SECONDS = 4;
 const REFRESH_SECONDS = 20;
 const ALERTS_REFRESH_SECONDS = 120;
 const OFFLINE_SECONDS = 90;
@@ -441,7 +439,7 @@ function upcomingArrivals(station, trips, now) {
             destination = direction === "N" ? "Uptown" : "Downtown";
         }
 
-        stationArrivals.push({ route: trip.route, direction, destination, time: stop.time });
+        stationArrivals.push({ route: trip.route, stopID: station.stopID, direction, destination, time: stop.time });
     });
     return stationArrivals;
 }
@@ -583,9 +581,12 @@ function textWidth(text) {
     return [...text].reduce((total, character) => total + glyph(character).width + 1, 0) - 1;
 }
 
-// drop letters until the text fits
+// drop whole words, then letters, until the text fits
 function fittedText(text, room) {
     let fitted = text;
+    while (fitted.includes(" ") && textWidth(fitted) > room) {
+        fitted = fitted.slice(0, fitted.lastIndexOf(" "));
+    }
     while (fitted && textWidth(fitted) > room) {
         fitted = fitted.slice(0, -1);
     }
@@ -609,33 +610,53 @@ function drawText(text, x, y, color, clipLeft = 0, clipRight = signWidth) {
 
 /********************* Render *********************/
 
-// one train: bullet, destination and minutes
-function drawTrainRow(arrival, y, now) {
+// trains grouped by key, in order of each group's next train
+function groupedTrains(trains, key) {
+    const groups = new Map();
+    trains.forEach(train => {
+        const groupKey = key(train);
+        if (!groups.has(groupKey)) {
+            groups.set(groupKey, []);
+        }
+        groups.get(groupKey).push(train);
+    });
+    return [...groups.values()];
+}
+
+// one line: bullet, where its next train is going, and its next two times
+function drawTrainRow(trains, y, now) {
+    const [next] = trains;
+
     // bullet, a diamond for express runs
-    const route = arrival.route.replace(/X$/, "");
+    const route = next.route.replace(/X$/, "");
     const color = ROUTE_COLORS[route] ?? COLORS.grey;
-    const shape = route === arrival.route ? CIRCLE_DOTS : DIAMOND_DOTS;
+    const shape = route === next.route ? CIRCLE_DOTS : DIAMOND_DOTS;
     shape.forEach(([x, dotY]) => setDot(7 + x, y + 6 + dotY, color));
     drawText(route, 7 - Math.floor((textWidth(route) - 1) / 2), y + 2, COLORS.white);
 
-    // minutes, or a blinking "Now" when it's in the station
-    const minutes = Math.max(0, Math.floor((arrival.time - now) / 60));
-    let minutesText = `${minutes}min`;
-    if (minutes === 0) {
-        minutesText = "Now";
+    // next two times, like "8, 23min" or "Now, 23min"
+    const minutes = trains.slice(0, 2).map(train => Math.max(0, Math.floor((train.time - now) / 60)));
+    let timesText = minutes.map(minute => (minute === 0 ? "Now" : `${minute}`)).join(", ");
+    if (minutes.at(-1) > 0) {
+        timesText += "min";
     }
-    const minutesX = signWidth - 1 - textWidth(minutesText);
-    const blinkedOff = minutes === 0 && Math.floor(Date.now() / 500) % 2 === 1;
-    if (!blinkedOff) {
-        drawText(minutesText, minutesX, y + 2, COLORS.amber);
+    const timesX = signWidth - 1 - textWidth(timesText);
+
+    // blink only the "Now" while a train is in the station
+    let visibleText = timesText;
+    let visibleX = timesX;
+    if (minutes[0] === 0 && Math.floor(Date.now() / 500) % 2 === 1) {
+        visibleText = timesText.slice(3);
+        visibleX = timesX + textWidth("Now") + 1;
     }
+    drawText(visibleText, visibleX, y + 2, COLORS.amber);
 
     // destination before the dash ("Coney Island"), cut to the room left
-    const destination = fittedText(arrival.destination.split("-")[0], minutesX - 22);
+    const destination = fittedText(next.destination.split("-")[0], timesX - 22);
     drawText(destination, 17, y + 2, COLORS.amber);
 }
 
-// an uptown section over a downtown one, each labeled, with its last row cycling through the rest like the platform clocks
+// an uptown section over a downtown one, each labeled, with a row per line showing its next two trains
 function drawTrains(now) {
     const upcoming = arrivals.filter(arrival => arrival.time > now - 30);
 
@@ -662,22 +683,21 @@ function drawTrains(now) {
             return;
         }
 
-        // pick the rows, only cycling through trains due soon
-        const rows = trains.slice(0, sectionRows - 1);
-        const rest = trains.slice(sectionRows - 1).filter(arrival => arrival.time < now + CYCLE_MINUTES * 60);
-        if (rest.length) {
-            rows.push(rest[Math.floor(now / PAGE_SECONDS) % rest.length]);
+        // a row per line, or per station when there are more lines than rows, since the F and M share a platform
+        let rows = groupedTrains(trains, train => train.route.replace(/X$/, ""));
+        if (rows.length > sectionRows) {
+            rows = groupedTrains(trains, train => train.stopID);
         }
 
-        rows.forEach((arrival, row) => drawTrainRow(arrival, rowY(row), now));
+        rows.slice(0, sectionRows).forEach((rowTrains, row) => drawTrainRow(rowTrains, rowY(row), now));
     });
 }
 
 // bottom line: the clock, then alerts or an offline warning scrolling past
 function drawTicker(time) {
-    // clock
+    // clock, with browsers' narrow space before AM/PM swapped for a plain one the font has
     const tickerY = signHeight - TICKER_HEIGHT + 1;
-    const clock = new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }).replace(" ", "");
+    const clock = new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }).replace(/\s/g, " ");
     drawText(clock, 1, tickerY, COLORS.amber);
 
     // offline warning beats alerts
