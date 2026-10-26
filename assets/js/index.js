@@ -759,10 +759,9 @@ function resizeSign() {
 
 // draw the sign, load trains and alerts, then keep them current
 async function setup() {
+    // size now, then whenever the sign's box changes, which on ios settles after the resize event when rotating
     resizeSign();
-    window.addEventListener("resize", function () {
-        resizeSign();
-    });
+    new ResizeObserver(() => resizeSign()).observe(sign);
     requestAnimationFrame(renderFrame);
 
     // first load
