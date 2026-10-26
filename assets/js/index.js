@@ -475,9 +475,20 @@ async function refreshArrivals() {
     }
 }
 
-// service alerts in effect right now for our lines
+// whether an alert's informed entity touches one of our stations: a station on one of its lines, or a line-wide alert with no stop
+function affectsStations(item) {
+    const route = item.route_id?.replace(/X$/, "");
+    const stopID = item.stop_id?.replace(/[NS]$/, "");
+    return STATIONS.some(station => {
+        if (!station.routes.includes(route)) {
+            return false;
+        }
+        return !stopID || stopID === station.stopID;
+    });
+}
+
+// service alerts in effect right now at our stations
 async function refreshAlerts() {
-    const routes = STATIONS.flatMap(station => station.routes);
     try {
         const feed = await fetch(ALERTS_URL, { cache: "no-store" })
             .then(response => response.json());
@@ -485,9 +496,9 @@ async function refreshAlerts() {
         const now = Date.now() / 1000;
         const headlines = [];
         feed.entity.forEach(entity => {
-            // only alerts for our lines
+            // only alerts that touch our stations
             const informed = entity.alert.informed_entity ?? [];
-            if (!informed.some(item => routes.includes(item.route_id?.replace(/X$/, "")))) {
+            if (!informed.some(affectsStations)) {
                 return;
             }
 
