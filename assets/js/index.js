@@ -15,22 +15,26 @@ const ALERTS_URL = `${FEED_BASE_URL}camsys%2Fsubway-alerts.json`;
 
 /********************* Display *********************/
 
-// the sign is a grid of dots about 192 wide, and as many rows tall as the screen fits
-const COLUMNS = 192;
-const MIN_HEIGHT = 48;
-const HEADER_HEIGHT = 10;
+// the sign is a grid of dots, as big as fits two lines each way and at least 150 dots across
+const MIN_COLUMNS = 150;
+const LINES_PER_DIRECTION = 2;
+const HEADER_HEIGHT = 11;
 const ROW_HEIGHT = 14;
-const TICKER_HEIGHT = 12;
+const TICKER_HEIGHT = 14;
+const TIMES_GAP = 6;
 const DIRECTIONS = [
     { id: "N", label: "UPTOWN" },
     { id: "S", label: "DOWNTOWN" },
 ];
+const MIN_ROWS = DIRECTIONS.length * (HEADER_HEIGHT + LINES_PER_DIRECTION * ROW_HEIGHT) + TICKER_HEIGHT;
 const FRAME_MS = 33;
 
 const COLORS = {
     black: "#000000",
     unlit: "#1e1408",
     amber: "#ffa31a",
+    dimAmber: "#a8650c",
+    rule: "#4d4d4d",
     red: "#ff3b30",
     white: "#ffffff",
     orange: "#ff6319",
@@ -268,8 +272,8 @@ let arrivals = [];
 let alerts = [];
 let lastUpdate = 0;
 let refreshFailed = false;
-let signWidth = COLUMNS;
-let signHeight = MIN_HEIGHT;
+let signWidth = MIN_COLUMNS;
+let signHeight = MIN_ROWS;
 let dots = [];
 let pitch = 0;
 let lastFrame = 0;
@@ -634,25 +638,28 @@ function drawTrainRow(trains, y, now) {
     shape.forEach(([x, dotY]) => setDot(7 + x, y + 6 + dotY, color));
     drawText(route, 7 - Math.floor((textWidth(route) - 1) / 2), y + 2, COLORS.white);
 
-    // next two times, like "8, 23min" or "Now, 23min"
-    const minutes = trains.slice(0, 2).map(train => Math.max(0, Math.floor((train.time - now) / 60)));
-    let timesText = minutes.map(minute => (minute === 0 ? "Now" : `${minute}`)).join(", ");
-    if (minutes.at(-1) > 0) {
-        timesText += "min";
-    }
-    const timesX = signWidth - 1 - textWidth(timesText);
+    // next two times as "2min  17min", or "Now" when it's in the station
+    const [nextLabel, laterLabel] = trains.slice(0, 2).map(train => {
+        const minutes = Math.max(0, Math.floor((train.time - now) / 60));
+        return minutes === 0 ? "Now" : `${minutes}min`;
+    });
 
-    // blink only the "Now" while a train is in the station
-    let visibleText = timesText;
-    let visibleX = timesX;
-    if (minutes[0] === 0 && Math.floor(Date.now() / 500) % 2 === 1) {
-        visibleText = timesText.slice(3);
-        visibleX = timesX + textWidth("Now") + 1;
+    // the train after, dimmer, at the right edge
+    let nextRight = signWidth - 1;
+    if (laterLabel) {
+        const laterX = signWidth - 1 - textWidth(laterLabel);
+        drawText(laterLabel, laterX, y + 2, COLORS.dimAmber);
+        nextRight = laterX - TIMES_GAP;
     }
-    drawText(visibleText, visibleX, y + 2, COLORS.amber);
+
+    // the next train, bright, blinking while it's in the station
+    const nextX = nextRight - textWidth(nextLabel);
+    if (nextLabel !== "Now" || Math.floor(Date.now() / 500) % 2 === 0) {
+        drawText(nextLabel, nextX, y + 2, COLORS.amber);
+    }
 
     // destination before the dash ("Coney Island"), cut to the room left
-    const destination = fittedText(next.destination.split("-")[0], timesX - 22);
+    const destination = fittedText(next.destination.split("-")[0], nextX - 22);
     drawText(destination, 17, y + 2, COLORS.amber);
 }
 
@@ -669,8 +676,13 @@ function drawTrains(now) {
         const top = index * sectionHeight;
         const rowY = row => top + HEADER_HEIGHT + Math.floor(row * slot + (slot - ROW_HEIGHT) / 2);
 
+        // thin rule between sections, so each label stays attached to its own trains
+        if (index > 0) {
+            Array.from({ length: signWidth }).forEach((_, x) => setDot(x, top, COLORS.rule));
+        }
+
         // label
-        drawText(direction.label, 1, top + 1, COLORS.white);
+        drawText(direction.label, 1, top + 2, COLORS.white);
 
         // nothing to show yet
         const trains = upcoming.filter(arrival => arrival.direction === direction.id);
@@ -695,8 +707,12 @@ function drawTrains(now) {
 
 // bottom line: the clock, then alerts or an offline warning scrolling past
 function drawTicker(time) {
+    // thin rule between the trains and the ticker
+    const ruleY = signHeight - TICKER_HEIGHT;
+    Array.from({ length: signWidth }).forEach((_, x) => setDot(x, ruleY, COLORS.rule));
+
     // clock, with browsers' narrow space before AM/PM swapped for a plain one the font has
-    const tickerY = signHeight - TICKER_HEIGHT + 1;
+    const tickerY = ruleY + 2;
     const clock = new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }).replace(/\s/g, " ");
     drawText(clock, 1, tickerY, COLORS.amber);
 
@@ -763,12 +779,12 @@ function renderFrame(time) {
     paintDots();
 }
 
-// fill the screen: dot size from about 160 columns, then as many columns and rows as fit, and draw the unlit grid once
+// fill the screen: the biggest dots that still fit the minimum grid, then as many columns and rows as fit, and draw the unlit grid once
 function resizeSign() {
     const ratio = window.devicePixelRatio;
-    pitch = Math.max(2, Math.floor(sign.clientWidth * ratio / COLUMNS));
+    pitch = Math.max(2, Math.floor(Math.min(sign.clientWidth * ratio / MIN_COLUMNS, sign.clientHeight * ratio / MIN_ROWS)));
     signWidth = Math.floor(sign.clientWidth * ratio / pitch);
-    signHeight = Math.max(MIN_HEIGHT, Math.floor(sign.clientHeight * ratio / pitch));
+    signHeight = Math.floor(sign.clientHeight * ratio / pitch);
     dots = new Array(signWidth * signHeight).fill(null);
     sign.width = signWidth * pitch;
     sign.height = signHeight * pitch;
