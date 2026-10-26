@@ -17,11 +17,16 @@ const ALERTS_URL = `${FEED_BASE_URL}camsys%2Fsubway-alerts.json`;
 
 /********************* Display *********************/
 
-// the sign is a grid of dots about 160 wide, and as many rows tall as the screen fits
-const COLUMNS = 160;
-const MIN_HEIGHT = 32;
-const ROW_HEIGHT = 16;
-const TICKER_HEIGHT = 14;
+// the sign is a grid of dots about 192 wide, and as many rows tall as the screen fits
+const COLUMNS = 192;
+const MIN_HEIGHT = 48;
+const HEADER_HEIGHT = 10;
+const ROW_HEIGHT = 14;
+const TICKER_HEIGHT = 12;
+const DIRECTIONS = [
+    { id: "N", label: "UPTOWN" },
+    { id: "S", label: "DOWNTOWN" },
+];
 const FRAME_MS = 33;
 
 const COLORS = {
@@ -430,12 +435,13 @@ function upcomingArrivals(station, trips, now) {
         }
 
         // name the train by its last stop, or its direction when that stop is off the line
+        const direction = stop.stopID.slice(-1);
         let destination = STOP_NAMES[lastStop.stopID.slice(0, -1)];
         if (!destination) {
-            destination = stop.stopID.endsWith("N") ? "Uptown" : "Downtown";
+            destination = direction === "N" ? "Uptown" : "Downtown";
         }
 
-        stationArrivals.push({ route: trip.route, destination, time: stop.time });
+        stationArrivals.push({ route: trip.route, direction, destination, time: stop.time });
     });
     return stationArrivals;
 }
@@ -609,8 +615,8 @@ function drawTrainRow(arrival, y, now) {
     const route = arrival.route.replace(/X$/, "");
     const color = ROUTE_COLORS[route] ?? COLORS.grey;
     const shape = route === arrival.route ? CIRCLE_DOTS : DIAMOND_DOTS;
-    shape.forEach(([x, dotY]) => setDot(7 + x, y + 7 + dotY, color));
-    drawText(route, 7 - Math.floor((textWidth(route) - 1) / 2), y + 3, COLORS.white);
+    shape.forEach(([x, dotY]) => setDot(7 + x, y + 6 + dotY, color));
+    drawText(route, 7 - Math.floor((textWidth(route) - 1) / 2), y + 2, COLORS.white);
 
     // minutes, or a blinking "Now" when it's in the station
     const minutes = Math.max(0, Math.floor((arrival.time - now) / 60));
@@ -621,42 +627,50 @@ function drawTrainRow(arrival, y, now) {
     const minutesX = signWidth - 1 - textWidth(minutesText);
     const blinkedOff = minutes === 0 && Math.floor(Date.now() / 500) % 2 === 1;
     if (!blinkedOff) {
-        drawText(minutesText, minutesX, y + 3, COLORS.amber);
+        drawText(minutesText, minutesX, y + 2, COLORS.amber);
     }
 
     // destination before the dash ("Coney Island"), cut to the room left
     const destination = fittedText(arrival.destination.split("-")[0], minutesX - 22);
-    drawText(destination, 17, y + 3, COLORS.amber);
+    drawText(destination, 17, y + 2, COLORS.amber);
 }
 
-// train rows: the first ones fixed, the last one cycling through the rest like the platform clocks
+// an uptown section over a downtown one, each labeled, with its last row cycling through the rest like the platform clocks
 function drawTrains(now) {
     const upcoming = arrivals.filter(arrival => arrival.time > now - 30);
 
-    // as many rows as fit above the ticker, spread evenly
-    const trainArea = signHeight - TICKER_HEIGHT;
-    const trainRows = Math.max(1, Math.floor(trainArea / ROW_HEIGHT));
-    const slot = trainArea / trainRows;
-    const rowY = index => Math.floor(index * slot + (slot - ROW_HEIGHT) / 2);
+    // split the space above the ticker evenly between the directions
+    const sectionHeight = Math.floor((signHeight - TICKER_HEIGHT) / DIRECTIONS.length);
+    const sectionRows = Math.max(1, Math.floor((sectionHeight - HEADER_HEIGHT) / ROW_HEIGHT));
+    const slot = (sectionHeight - HEADER_HEIGHT) / sectionRows;
 
-    // nothing to show yet
-    if (!upcoming.length) {
-        let message = "Loading trains...";
-        if (lastUpdate) {
-            message = "No trains scheduled";
+    DIRECTIONS.forEach((direction, index) => {
+        const top = index * sectionHeight;
+        const rowY = row => top + HEADER_HEIGHT + Math.floor(row * slot + (slot - ROW_HEIGHT) / 2);
+
+        // label
+        drawText(direction.label, 1, top + 1, COLORS.white);
+
+        // nothing to show yet
+        const trains = upcoming.filter(arrival => arrival.direction === direction.id);
+        if (!trains.length) {
+            let message = "Loading trains...";
+            if (lastUpdate) {
+                message = "No trains scheduled";
+            }
+            drawText(message, 17, rowY(0) + 2, COLORS.amber);
+            return;
         }
-        drawText(message, 2, rowY(0) + 3, COLORS.amber);
-        return;
-    }
 
-    // pick the rows, only cycling through trains due soon
-    const rows = upcoming.slice(0, trainRows - 1);
-    const rest = upcoming.slice(trainRows - 1).filter(arrival => arrival.time < now + CYCLE_MINUTES * 60);
-    if (rest.length) {
-        rows.push(rest[Math.floor(now / PAGE_SECONDS) % rest.length]);
-    }
+        // pick the rows, only cycling through trains due soon
+        const rows = trains.slice(0, sectionRows - 1);
+        const rest = trains.slice(sectionRows - 1).filter(arrival => arrival.time < now + CYCLE_MINUTES * 60);
+        if (rest.length) {
+            rows.push(rest[Math.floor(now / PAGE_SECONDS) % rest.length]);
+        }
 
-    rows.forEach((arrival, index) => drawTrainRow(arrival, rowY(index), now));
+        rows.forEach((arrival, row) => drawTrainRow(arrival, rowY(row), now));
+    });
 }
 
 // bottom line: the clock, then alerts or an offline warning scrolling past
